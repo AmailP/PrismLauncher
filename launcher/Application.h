@@ -221,6 +221,7 @@ class Application : public QApplication {
                 const QString& offlineName = QString());
     bool kill(BaseInstance* instance);
     void closeCurrentWindow();
+    void closeAllWindowsAfterLaunch();
 
    private slots:
     void on_windowClose();
@@ -239,6 +240,7 @@ class Application : public QApplication {
    private:
     void addRunningInstance();
     void subRunningInstance();
+    void abortRunningInstances();
     bool shouldExitNow() const;
 
    private:
@@ -290,6 +292,8 @@ class Application : public QApplication {
     size_t m_openWindows = 0;
     size_t m_runningInstances = 0;
     bool m_updateRunning = false;
+    bool m_closingWindowsAfterLaunch = false;
+    bool m_shutdownInProgress = false;
 
     // main window, if any
     MainWindow* m_mainWindow = nullptr;

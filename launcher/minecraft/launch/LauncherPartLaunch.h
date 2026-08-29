@@ -18,6 +18,7 @@
 #include <LoggedProcess.h>
 #include <launch/LaunchStep.h>
 #include <minecraft/auth/AuthSession.h>
+#include <QTimer>
 
 #include "MinecraftTarget.h"
 
@@ -40,7 +41,11 @@ class LauncherPartLaunch : public LaunchStep {
     void on_state(LoggedProcess::State state);
 
    private:
+    void sendWatchdogHeartbeat();
+
+   private:
     LoggedProcess m_process;
+    QTimer m_watchdogTimer;
     QString m_command;
     AuthSessionPtr m_session;
     QString m_launchScript;

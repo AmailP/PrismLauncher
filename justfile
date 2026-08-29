@@ -14,6 +14,15 @@ configure:
 build: configure
     cmake --build --preset "{{preset}}" --config "{{build_type}}"
 
+# Build and install the complete optimized Release application bundle.
+release: configure
+    cmake --build --preset "{{preset}}" --config "Release"
+    cmake -E remove_directory "$PWD/install/PrismLauncher.app"
+    cmake --install build --config "Release"
+    codesign --force --deep --sign - "$PWD/install/PrismLauncher.app"
+    codesign --verify --deep --strict "$PWD/install/PrismLauncher.app"
+    @echo "$PWD/install/PrismLauncher.app"
+
 run: build
     cmake -E copy_directory build/jars \
         "build/{{build_type}}/prismlauncher.app/Contents/MacOS/jars"

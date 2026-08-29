@@ -48,6 +48,11 @@
 #include "gamemode_client.h"
 #endif
 
+namespace {
+constexpr int WatchdogHeartbeatInterval = 1000;
+constexpr int WatchdogTimeout = 10000;
+}  // namespace
+
 LauncherPartLaunch::LauncherPartLaunch(LaunchTask* parent)
     : LaunchStep(parent)
     , m_process(parent->instance()->getJavaVersion().defaultsToUtf8() ? QStringConverter::Utf8 : QStringConverter::System)
@@ -59,7 +64,7 @@ LauncherPartLaunch::LauncherPartLaunch(LaunchTask* parent)
             connect(&m_process, &LoggedProcess::log, this, [connection](const QStringList& lines, [[maybe_unused]] MessageLevel level) {
                 qDebug() << lines;
                 if (lines.filter(s_settingUser).length() != 0) {
-                    APPLICATION->closeAllWindows();
+                    APPLICATION->closeAllWindowsAfterLaunch();
                     disconnect(*connection);
                 }
             });
@@ -67,6 +72,8 @@ LauncherPartLaunch::LauncherPartLaunch(LaunchTask* parent)
 
     connect(&m_process, &LoggedProcess::log, this, &LauncherPartLaunch::logLines);
     connect(&m_process, &LoggedProcess::stateChanged, this, &LauncherPartLaunch::on_state);
+    m_watchdogTimer.setInterval(WatchdogHeartbeatInterval);
+    connect(&m_watchdogTimer, &QTimer::timeout, this, &LauncherPartLaunch::sendWatchdogHeartbeat);
 }
 
 void LauncherPartLaunch::executeTask()
@@ -93,6 +100,7 @@ void LauncherPartLaunch::executeTask()
     }
 
     m_launchScript = instance->createLaunchScript(m_session, m_targetToJoin);
+    m_launchScript += QStringLiteral("launcherWatchdog %1\n").arg(WatchdogTimeout);
     QStringList args = instance->javaArguments();
     QString allArgs = args.join(" ");
     emit logLine("Java arguments:\n  " + m_parent->censorPrivateInfo(allArgs) + "\n", MessageLevel::Launcher);
@@ -161,6 +169,11 @@ void LauncherPartLaunch::executeTask()
 
 void LauncherPartLaunch::on_state(LoggedProcess::State state)
 {
+    if (state == LoggedProcess::FailedToStart || state == LoggedProcess::Aborted || state == LoggedProcess::Crashed ||
+        state == LoggedProcess::Finished) {
+        m_watchdogTimer.stop();
+    }
+
     switch (state) {
         case LoggedProcess::FailedToStart: {
             //: Error message displayed if instace can't start
@@ -220,12 +233,22 @@ void LauncherPartLaunch::proceed()
         m_parent->instance()->setMinecraftRunning(true);
         QString launchString("launch\n");
         m_process.write(launchString.toUtf8());
+        sendWatchdogHeartbeat();
+        m_watchdogTimer.start();
         mayProceed = false;
+    }
+}
+
+void LauncherPartLaunch::sendWatchdogHeartbeat()
+{
+    if (m_process.state() == LoggedProcess::Running) {
+        m_process.write("heartbeat\n");
     }
 }
 
 bool LauncherPartLaunch::abort()
 {
+    m_watchdogTimer.stop();
     if (mayProceed) {
         mayProceed = false;
         QString launchString("abort\n");

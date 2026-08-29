@@ -493,7 +493,18 @@ bool LaunchController::abort()
                                                  QMessageBox::Question, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes)
                         ->exec();
     if (response == QMessageBox::Yes) {
-        return m_launcher->abort();
+        return abortWithoutConfirmation();
     }
     return false;
+}
+
+bool LaunchController::abortWithoutConfirmation()
+{
+    if (!m_launcher) {
+        return true;
+    }
+    if (!m_launcher->canAbort()) {
+        return false;
+    }
+    return m_launcher->abort();
 }

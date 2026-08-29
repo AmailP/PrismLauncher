@@ -71,6 +71,7 @@ class LaunchController : public Task {
     QString id() const { return m_instance->id(); }
 
     bool abort() override;
+    bool abortWithoutConfirmation();
 
    private:
     void login();

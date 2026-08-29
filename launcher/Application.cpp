@@ -96,6 +96,7 @@
 #include <QLibraryInfo>
 #include <QList>
 #include <QNetworkAccessManager>
+#include <QPointer>
 #include <QStringList>
 #include <QStringLiteral>
 #include <QStyleFactory>
@@ -1039,6 +1040,8 @@ Application::Application(int& argc, char** argv) : QApplication(argc, argv)
 #endif
 
     connect(this, &Application::aboutToQuit, [this]() {
+        abortRunningInstances();
+
         if (m_instances) {
             // save any remaining instance state
             m_instances->saveNow();
@@ -1580,6 +1583,13 @@ void Application::closeCurrentWindow()
         focusWindow()->close();
 }
 
+void Application::closeAllWindowsAfterLaunch()
+{
+    m_closingWindowsAfterLaunch = true;
+    closeAllWindows();
+    m_closingWindowsAfterLaunch = false;
+}
+
 void Application::addRunningInstance()
 {
     m_runningInstances++;
@@ -1597,6 +1607,24 @@ void Application::subRunningInstance()
     m_runningInstances--;
     if (m_runningInstances == 0) {
         emit updateAllowedChanged(true);
+    }
+}
+
+void Application::abortRunningInstances()
+{
+    QList<QPointer<LaunchController>> runningControllers;
+    {
+        QMutexLocker locker(&m_instanceExtrasMutex);
+        for (auto& entry : m_instanceExtras) {
+            if (entry.second.controller) {
+                runningControllers.append(entry.second.controller.get());
+            }
+        }
+    }
+    for (auto& controller : runningControllers) {
+        if (controller) {
+            controller->abortWithoutConfirmation();
+        }
     }
 }
 
@@ -1753,6 +1781,20 @@ void Application::on_windowClose()
     if (logWindow) {
         m_viewLogWindow = nullptr;
     }
+
+    const bool shouldShutdown = !m_closingWindowsAfterLaunch && !m_shutdownInProgress && (mainWindow || m_openWindows == 0);
+    if (shouldShutdown) {
+        m_shutdownInProgress = true;
+        abortRunningInstances();
+        QMetaObject::invokeMethod(
+            this,
+            []() {
+                closeAllWindows();
+                quit();
+            },
+            Qt::QueuedConnection);
+    }
+
     // quit when there are no more windows.
     if (shouldExitNow()) {
         exit(0);

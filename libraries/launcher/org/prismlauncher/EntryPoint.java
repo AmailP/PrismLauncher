@@ -64,6 +64,7 @@ import org.prismlauncher.utils.logging.Log;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 
 public final class EntryPoint {
     public static void main(String[] args) {
@@ -80,7 +81,9 @@ public final class EntryPoint {
         Parameters params = new Parameters();
         PreLaunchAction action = PreLaunchAction.PROCEED;
 
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))) {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+
+        try {
             while (action == PreLaunchAction.PROCEED) {
                 String line = reader.readLine();
                 if (line != null)
@@ -102,6 +105,17 @@ public final class EntryPoint {
             Log.fatal("Launch aborted by the launcher");
 
             return ExitCode.ABORT;
+        }
+
+        String watchdogTimeout = params.getString("launcherWatchdog", null);
+        if (watchdogTimeout != null) {
+            try {
+                startWatchdog(reader, Integer.parseInt(watchdogTimeout));
+            } catch (IllegalArgumentException e) {
+                Log.fatal("Invalid launcher watchdog timeout", e);
+
+                return ExitCode.ILLEGAL_ARGUMENT;
+            }
         }
 
         SystemProperties.apply(params);
@@ -140,6 +154,48 @@ public final class EntryPoint {
         }
     }
 
+    private static void startWatchdog(final BufferedReader reader, final int timeoutMillis) {
+        if (timeoutMillis <= 0)
+            throw new IllegalArgumentException("Watchdog timeout must be positive");
+
+        Thread watchdog = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+
+                try {
+                    while (true) {
+                        if (reader.ready()) {
+                            String line = reader.readLine();
+
+                            if (line == null) {
+                                terminateAfterWatchdogFailure("Launcher connection closed; terminating Minecraft");
+                                return;
+                            }
+                            if ("heartbeat".equals(line))
+                                deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+                        } else if (System.nanoTime() >= deadline) {
+                            terminateAfterWatchdogFailure("Launcher heartbeat timed out; terminating Minecraft");
+                            return;
+                        }
+
+                        Thread.sleep(250L);
+                    }
+                } catch (Throwable e) {
+                    Log.fatal("Launcher watchdog failed; terminating Minecraft", e);
+                    System.exit(ExitCode.WATCHDOG.numeric);
+                }
+            }
+        }, "Prism Launcher Watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
+    }
+
+    private static void terminateAfterWatchdogFailure(String reason) {
+        Log.fatal(reason);
+        System.exit(ExitCode.WATCHDOG.numeric);
+    }
+
     private static PreLaunchAction parseLine(String input, Parameters params) throws ParseException {
         switch (input) {
             case "":
@@ -169,6 +225,7 @@ public final class EntryPoint {
         NORMAL(0),
         ABORT(1),
         ERROR(2),
+        WATCHDOG(3),
         ILLEGAL_ARGUMENT(65);
 
         private final int numeric;

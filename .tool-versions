@@ -1,0 +1,4 @@
+cmake 4.4.3
+ninja 1.13.2
+java temurin-17.0.20+101
+just 1.58.0
